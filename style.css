@@ -1,6 +1,7 @@
 h1 {
   color: black;
   font-family: 'Work Sans', sans-serif;
+  font-size: 25px;
 }
 
 .sitebox {
@@ -27,9 +28,16 @@ div
     .sitebox {
         margin: 20px
     }
-    .sitebox_text {
-      font-size: 20px !important;
+    h1 {
+      font-size: 22px;
   }
+    .sitebox_text {
+      font-size: 18px !important;
+  }
+  
+/*   .sitebox_text {
+      max-width: 80%;
+  } */
 }
 
 .sitebox_inner {
