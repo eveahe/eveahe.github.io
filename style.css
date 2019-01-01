@@ -114,14 +114,22 @@ a:visited {
 }
 
 a.corner_link{
-  border-bottom: 1px solid pink;
-  box-shadow: 0px -4px 0px pink inset;
+  border-bottom: none;
+  box-shadow: none;
 }
 
 a.corner_link:hover {
     background-color: yellow;
-    box-shadow: 0px -4px 0px yellow inset;
   }
+
+.sitebox_button {
+  border: 1px solid pink;
+}
+
+.sitebox_button:hover{
+  background-color: yellow;
+  border: 1px solid grey;
+}
 
 @media (max-width: 600px) {
     .sitebox {
