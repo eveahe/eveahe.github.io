@@ -5,7 +5,7 @@ h1 {
 
 p{
   font-family: 'Work Sans', sans-serif;
-  font-size: 80%
+  font-size: 70%
 }
 
 .sitebox {
@@ -26,7 +26,6 @@ div
     vertical-align: baseline;
 }
 
-
 .sitebox_inner {
   background: white;
   border-style: dashed;
@@ -39,8 +38,6 @@ div
   z-index: 100;
   box-shadow: 5px 10px #888888;
 }
-
-
 
 .sitebox_blog{
   font-family: 'Work Sans', sans-serif;
@@ -134,14 +131,15 @@ a.corner_link:hover {
     .sitebox {
         margin: 20px
     }
+  
     h1 {
-      font-size: 1em;
+      font-size: 1.5em;
   }
     .sitebox_text {
-      font-size: 14px !important;
+      font-size: 1em !important;
   }
   
-  .sitebox_button {
+    .sitebox_button {
       height:6vh;
       width: 16vw;
   }
