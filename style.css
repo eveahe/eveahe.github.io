@@ -129,7 +129,7 @@ a.corner_link:hover {
 
 @media (max-width: 600px) {
     .sitebox {
-        margin: 20px
+        margin: 20px;
     }
   
     h1 {
