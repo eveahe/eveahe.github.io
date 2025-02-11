@@ -109,15 +109,17 @@ a:visited {
     color: black;
 }
 
-a.corner_link{
+/* a.corner_link{
   border-bottom: none;
   box-shadow: none;
 }
 
 a.corner_link:hover {
     background-color: yellow;
-  }
+  } */
 
+  
+/* temporarily hiding the buttons, might want to add them back in the future.
 .sitebox_button {
   border: 1px solid pink;
 }
@@ -125,7 +127,7 @@ a.corner_link:hover {
 .sitebox_button:hover{
   background-color: yellow;
   border: 1px solid grey;
-}
+} */
 
 @media (max-width: 600px) {
     .sitebox {
