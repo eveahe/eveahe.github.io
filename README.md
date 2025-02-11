@@ -2,7 +2,7 @@ eveahe.github.io
 =================
 
 
-Thanks to [Fog Creek](https://fogcreek.com/)
+A little home on the web. 
 -------------------
 
 \ ゜o゜)ノ
