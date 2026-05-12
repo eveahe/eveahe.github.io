@@ -543,17 +543,37 @@ function passesThroughPark(geometry) {
 }
 
 async function fetchStreetTrees(geometry) {
-  const line     = turf.lineString(geometry.coordinates);
+  const coords   = geometry.coordinates;
+  const line     = turf.lineString(coords);
   const buffered = turf.buffer(line, 40, { units: 'meters' });
-  const [minLon, minLat, maxLon, maxLat] = turf.bbox(buffered);
-  const where = `latitude > ${minLat} AND latitude < ${maxLat} AND longitude > ${minLon} AND longitude < ${maxLon}`;
-  const url = `https://data.cityofnewyork.us/resource/uvpi-gqnh.json?` +
-    `$where=${encodeURIComponent(where)}&$select=tree_id,spc_common,spc_latin,health,latitude,longitude&$limit=500`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to load street tree data');
-  const trees = await res.json();
-  return trees
+
+  // Split into ~500m chunks so each bbox query is tight enough to stay
+  // well under the 500-record API limit on long cross-borough routes.
+  const CHUNK = 25;
+  const chunks = [];
+  for (let i = 0; i < coords.length; i += CHUNK) {
+    chunks.push(coords.slice(i, Math.min(i + CHUNK + 1, coords.length)));
+  }
+
+  const seen = new Set();
+  const results = await Promise.all(chunks.map(async chunkCoords => {
+    const chunkLine = turf.lineString(chunkCoords.length > 1 ? chunkCoords : [chunkCoords[0], chunkCoords[0]]);
+    const chunkBuf  = turf.buffer(chunkLine, 40, { units: 'meters' });
+    const [minLon, minLat, maxLon, maxLat] = turf.bbox(chunkBuf);
+    const where = `latitude > ${minLat} AND latitude < ${maxLat} AND longitude > ${minLon} AND longitude < ${maxLon}`;
+    const url = `https://data.cityofnewyork.us/resource/uvpi-gqnh.json?` +
+      `$where=${encodeURIComponent(where)}&$select=tree_id,spc_common,spc_latin,health,latitude,longitude&$limit=500`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch { return []; }
+  }));
+
+  return results.flat()
     .filter(t => {
+      if (seen.has(t.tree_id)) return false;
+      seen.add(t.tree_id);
       const lat = parseFloat(t.latitude), lon = parseFloat(t.longitude);
       return lat && lon && turf.booleanPointInPolygon(turf.point([lon, lat]), buffered);
     })
