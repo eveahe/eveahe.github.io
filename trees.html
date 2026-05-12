@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>NYC Treeline</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    #map { width: 100%; height: 100dvh; }
+
+    /* ── Search panel ── */
+    #search-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: white;
+      border-radius: 20px 20px 0 0;
+      padding: 12px 16px 20px;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.12);
+      z-index: 1000;
+      max-height: 72dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .drag-handle {
+      width: 36px; height: 4px;
+      background: #e5e7eb;
+      border-radius: 2px;
+      margin: 0 auto 12px;
+    }
+
+    /* ── Mode toggle ── */
+    .mode-toggle {
+      display: flex;
+      background: #f3f4f6;
+      border-radius: 10px;
+      padding: 3px;
+      margin-bottom: 12px;
+      gap: 2px;
+    }
+    .mode-btn {
+      flex: 1;
+      border: none;
+      background: none;
+      border-radius: 8px;
+      padding: 8px 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      color: #6b7280;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .mode-btn.active {
+      background: white;
+      color: #111;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+      font-weight: 600;
+    }
+
+    /* ── Route spine ── */
+    .route-spine { display: flex; flex-direction: column; margin-bottom: 10px; }
+
+    .spine-row { display: flex; align-items: center; gap: 10px; }
+
+    .spine-icon {
+      width: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .dot.origin { background: #3b82f6; }
+    .dot.dest   { background: #16a34a; }
+
+    .route-input {
+      flex: 1;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 9px 13px;
+      font-size: 16px;
+      outline: none;
+      background: #f9fafb;
+      color: #111;
+      -webkit-appearance: none;
+    }
+    .route-input:focus { border-color: #3b82f6; background: white; }
+    .route-input::placeholder { color: #9ca3af; }
+
+    .spine-gap { display: flex; align-items: stretch; padding: 2px 0; }
+    .spine-line-wrap { width: 22px; display: flex; justify-content: center; flex-shrink: 0; }
+    .spine-line { width: 2px; background: #d1d5db; border-radius: 1px; flex: 1; }
+
+    /* ── Go button ── */
+    #go-btn {
+      width: 100%;
+      background: #14532d;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 13px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    #go-btn:active   { background: #052e16; }
+    #go-btn:disabled { background: #9ca3af; cursor: default; }
+
+    #status-line {
+      text-align: center;
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 7px;
+      min-height: 18px;
+    }
+
+    #error-msg {
+      display: none;
+      background: #fef2f2;
+      color: #b91c1c;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    /* ── Journey card ── */
+    #journey-card { display: none; margin-top: 10px; }
+    #journey-card.visible { display: block; }
+
+    .j-step {
+      display: flex;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .j-step:last-of-type { border-bottom: none; }
+
+    .j-icon { font-size: 16px; flex-shrink: 0; width: 22px; text-align: center; }
+
+    .j-text {
+      font-size: 13px;
+      color: #374151;
+      line-height: 1.5;
+    }
+    .j-text strong { color: #111; }
+    .j-text em { font-style: normal; color: #6b7280; }
+
+    /* MTA line colored dots */
+    .line-dot {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      margin: 0 1px;
+      vertical-align: middle;
+    }
+
+    .arrivals-link {
+      display: block;
+      margin-top: 8px;
+      padding: 9px 12px;
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #1d4ed8;
+      text-decoration: none;
+      text-align: center;
+    }
+    .arrivals-link:active { background: #dbeafe; }
+
+    /* ── Locate button ── */
+    #locate-btn {
+      position: fixed;
+      top: 16px; right: 16px;
+      z-index: 999;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      width: 44px; height: 44px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Tree detail panel ── */
+    #tree-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: white;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+      z-index: 2000;
+      max-height: 82dvh;
+      overflow-y: auto;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    #tree-panel.open { transform: translateY(0); }
+
+    .panel-top {
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 12px 16px 0;
+      z-index: 1;
+    }
+
+    .close-btn {
+      position: absolute;
+      right: 14px; top: 10px;
+      background: #f3f4f6;
+      border: none;
+      border-radius: 50%;
+      width: 30px; height: 30px;
+      font-size: 17px;
+      cursor: pointer;
+      color: #4b5563;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tree-names { padding: 4px 16px 14px; border-bottom: 1px solid #f3f4f6; }
+    .tree-common { font-size: 22px; font-weight: 700; color: #111; }
+    .tree-latin  { font-size: 14px; color: #6b7280; font-style: italic; margin-top: 2px; }
+
+    .health-badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 7px;
+    }
+    .h-good { background: #dcfce7; color: #166534; }
+    .h-fair { background: #fef9c3; color: #854d0e; }
+    .h-poor { background: #fee2e2; color: #991b1b; }
+
+    .tree-images {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 14px 16px 6px;
+    }
+    .img-card { border-radius: 10px; overflow: hidden; background: #f3f4f6; aspect-ratio: 1; }
+    .img-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .img-label {
+      font-size: 11px; color: #6b7280; text-align: center; margin-top: 4px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+
+    .tree-summary { padding: 10px 16px 12px; font-size: 14px; line-height: 1.65; color: #374151; }
+
+    .wiki-link {
+      display: flex;
+      align-items: center; justify-content: center;
+      gap: 6px;
+      margin: 0 16px 28px;
+      padding: 13px;
+      border: 1.5px solid #d1fae5;
+      border-radius: 12px;
+      text-decoration: none;
+      color: #14532d;
+      font-size: 14px; font-weight: 600;
+      background: #f0fdf4;
+    }
+    .wiki-link:active { background: #dcfce7; }
+
+    .spinner {
+      width: 28px; height: 28px;
+      border: 2.5px solid #e5e7eb;
+      border-top-color: #16a34a;
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+      margin: 28px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Tree list ── */
+    #tree-list { margin-top: 10px; }
+
+    .tree-list-section { margin-bottom: 4px; }
+    .tree-list-header {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #9ca3af;
+      padding: 8px 4px 4px;
+    }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .tree-row:active, .tree-row:hover { background: #f3f4f6; }
+
+    .tree-row-icon {
+      width: 14px; height: 14px;
+      background: #15803d;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      flex-shrink: 0;
+    }
+    .tree-row-icon.park { background: #14532d; border-color: #bbf7d0; }
+
+    .tree-row-text { flex: 1; min-width: 0; }
+    .tree-row-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #111;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tree-row-latin {
+      font-size: 12px;
+      color: #9ca3af;
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tree-row-count {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      background: #f3f4f6;
+      border-radius: 20px;
+      padding: 2px 8px;
+      flex-shrink: 0;
+    }
+    .tree-row-chevron { color: #d1d5db; font-size: 14px; flex-shrink: 0; }
+
+    .tree-list { margin-top: 10px; }
+
+    .tree-dot {
+      width: 20px; height: 20px;
+      background: #15803d;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.35);
+      cursor: pointer;
+    }
+    .tree-dot.park {
+      background: #14532d;
+      border-color: #bbf7d0;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+    }
+
+    .station-dot {
+      width: 26px; height: 26px;
+      background: #1d4ed8;
+      border: 3px solid white;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<button id="locate-btn" title="Center on my location">📍</button>
+
+<div id="search-panel">
+  <div class="drag-handle"></div>
+
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="mode-walk">🚶 Walking</button>
+    <button class="mode-btn" id="mode-subway">🚇 Subway</button>
+  </div>
+
+  <div class="route-spine">
+    <div class="spine-row">
+      <div class="spine-icon"><div class="dot origin"></div></div>
+      <input id="origin-input" class="route-input" type="text"
+        placeholder="From: leave blank for my location" autocomplete="off" autocorrect="off">
+    </div>
+    <div class="spine-gap">
+      <div class="spine-line-wrap"><div class="spine-line"></div></div>
+    </div>
+    <div class="spine-row">
+      <div class="spine-icon"><div class="dot dest"></div></div>
+      <input id="dest-input" class="route-input" type="text"
+        placeholder="To: address, cross street…" autocomplete="off" autocorrect="off">
+    </div>
+  </div>
+
+  <button id="go-btn">🌳 Show trees along route</button>
+  <div id="status-line"></div>
+  <div id="error-msg"></div>
+  <div id="journey-card"></div>
+  <div id="tree-list"></div>
+</div>
+
+<div id="tree-panel">
+  <div class="panel-top">
+    <div class="drag-handle"></div>
+    <button class="close-btn" id="close-panel" aria-label="Close">✕</button>
+  </div>
+  <div id="panel-content"></div>
+</div>
+
+<script>
+// ─── Map ──────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([40.7549, -73.984], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19
+}).addTo(map);
+
+let userLatLng  = null;
+let userMarker  = null;
+let routeLayers = [];
+const treeLayer = L.layerGroup().addTo(map);
+
+// ─── Mode toggle ─────────────────────────────────────────────────
+let subwayMode = false;
+
+function setMode(subway) {
+  subwayMode = subway;
+  document.getElementById('mode-walk').classList.toggle('active', !subway);
+  document.getElementById('mode-subway').classList.toggle('active', subway);
+  document.getElementById('go-btn').textContent = subway
+    ? '🚇 Plan subway + tree route'
+    : '🌳 Show trees along route';
+  clearJourneyCard();
+}
+
+document.getElementById('mode-walk').addEventListener('click', () => setMode(false));
+document.getElementById('mode-subway').addEventListener('click', () => setMode(true));
+
+// ─── Geolocation ──────────────────────────────────────────────────
+function locateUser() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    userLatLng = [pos.coords.latitude, pos.coords.longitude];
+    if (userMarker) userMarker.remove();
+    userMarker = L.circleMarker(userLatLng, {
+      radius: 7, fillColor: '#3b82f6', fillOpacity: 1, color: 'white', weight: 2.5
+    }).bindTooltip('You are here').addTo(map);
+    map.setView(userLatLng, 16);
+  }, () => {});
+}
+
+locateUser();
+document.getElementById('locate-btn').addEventListener('click', locateUser);
+
+// ─── Geocoding (Nominatim) ────────────────────────────────────────
+async function geocode(query) {
+  const normalized = query.replace(/&/g, 'and').trim();
+  const url = `https://nominatim.openstreetmap.org/search?` +
+    `q=${encodeURIComponent(normalized + ', New York City')}&format=json&limit=1&accept-language=en`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  if (!data.length) throw new Error(`Couldn't find "${query}" — try a full address or cross streets`);
+  return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+}
+
+// ─── Routing (OSRM) ───────────────────────────────────────────────
+async function getWalkingRoute(originLatLng, destLatLng) {
+  const [oLat, oLon] = originLatLng;
+  const [dLat, dLon] = destLatLng;
+  const url = `https://router.project-osrm.org/route/v1/foot/${oLon},${oLat};${dLon},${dLat}` +
+    `?overview=full&geometries=geojson`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  if (data.code !== 'Ok') throw new Error('Could not calculate a walking route between those points');
+  const r = data.routes[0];
+  return { geometry: r.geometry, duration: r.duration }; // duration in seconds
+}
+
+function walkMinutes(duration) {
+  return Math.max(1, Math.round(duration / 60));
+}
+
+// ─── Draw helpers ─────────────────────────────────────────────────
+function drawWalkLeg(geometry) {
+  const latLngs = geometry.coordinates.map(c => [c[1], c[0]]);
+  const line = L.polyline(latLngs, { color: '#3b82f6', weight: 4, opacity: 0.8 }).addTo(map);
+  routeLayers.push(line);
+  return line;
+}
+
+function drawSubwayLeg(fromLatLng, toLatLng) {
+  const line = L.polyline([fromLatLng, toLatLng], {
+    color: '#f59e0b', weight: 4, opacity: 0.9, dashArray: '10 7'
+  }).addTo(map);
+  routeLayers.push(line);
+  const stationIcon = L.divIcon({
+    className: '',
+    html: `<div class="station-dot">🚇</div>`,
+    iconSize: [26, 26], iconAnchor: [13, 13]
+  });
+  [fromLatLng, toLatLng].forEach(ll => {
+    routeLayers.push(L.marker(ll, { icon: stationIcon }).addTo(map));
+  });
+}
+
+function clearRoute() {
+  routeLayers.forEach(l => l.remove());
+  routeLayers = [];
+  treeLayer.clearLayers();
+  clearJourneyCard();
+}
+
+// ─── Tree data ────────────────────────────────────────────────────
+const CP_BOUNDS = turf.bboxPolygon([-73.9814, 40.7641, -73.9496, 40.8008]);
+
+function passesThroughPark(geometry) {
+  return turf.booleanIntersects(turf.lineString(geometry.coordinates), CP_BOUNDS);
+}
+
+async function fetchStreetTrees(geometry) {
+  const line     = turf.lineString(geometry.coordinates);
+  const buffered = turf.buffer(line, 40, { units: 'meters' });
+  const [minLon, minLat, maxLon, maxLat] = turf.bbox(buffered);
+  const where = `latitude > ${minLat} AND latitude < ${maxLat} AND longitude > ${minLon} AND longitude < ${maxLon}`;
+  const url = `https://data.cityofnewyork.us/resource/uvpi-gqnh.json?` +
+    `$where=${encodeURIComponent(where)}&$select=tree_id,spc_common,spc_latin,health,latitude,longitude&$limit=500`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to load street tree data');
+  const trees = await res.json();
+  return trees
+    .filter(t => {
+      const lat = parseFloat(t.latitude), lon = parseFloat(t.longitude);
+      return lat && lon && turf.booleanPointInPolygon(turf.point([lon, lat]), buffered);
+    })
+    .map(t => ({ ...t, isParkTree: false }));
+}
+
+async function fetchParkTrees(geometry) {
+  const line     = turf.lineString(geometry.coordinates);
+  const buffered = turf.buffer(line, 40, { units: 'meters' });
+  const [minLon, minLat, maxLon, maxLat] = turf.bbox(buffered);
+  const url = `https://data.cityofnewyork.us/resource/hn5i-inap.json?` +
+    `$where=${encodeURIComponent(`within_box(location,${minLat},${minLon},${maxLat},${maxLon})`)}` +
+    `&$select=objectid,genusspecies,tpcondition,location&$limit=2000`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const trees = await res.json();
+    return trees
+      .filter(t => t.location?.coordinates)
+      .filter(t => {
+        const [lon, lat] = t.location.coordinates;
+        return turf.booleanPointInPolygon(turf.point([lon, lat]), buffered);
+      })
+      .map(t => {
+        const [lon, lat] = t.location.coordinates;
+        const parts = (t.genusspecies || '').split(' - ');
+        const spc_latin  = parts[0]?.trim() || '';
+        const spc_common = parts[1]?.trim() || spc_latin || 'Unknown tree';
+        const health = t.tpcondition === 'Excellent' ? 'Good' : (t.tpcondition || '');
+        return { tree_id: `park_${t.objectid}`, spc_common, spc_latin, health,
+                 latitude: lat, longitude: lon, isParkTree: true };
+      });
+  } catch { return []; }
+}
+
+function isKnownTree(t) {
+  const name = (t.spc_common || '').toLowerCase().trim();
+  const latin = (t.spc_latin || '').toLowerCase().trim();
+  return name !== 'unknown' && latin !== 'unknown' && name !== '';
+}
+
+async function fetchAllTrees(geometry) {
+  const fetches = [fetchStreetTrees(geometry)];
+  if (passesThroughPark(geometry)) fetches.push(fetchParkTrees(geometry));
+  return (await Promise.all(fetches)).flat().filter(isKnownTree);
+}
+
+function placeTrees(trees) {
+  trees.forEach(tree => {
+    const lat = parseFloat(tree.latitude), lon = parseFloat(tree.longitude);
+    if (!lat || !lon) return;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="tree-dot${tree.isParkTree ? ' park' : ''}"></div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10]
+    });
+    L.marker([lat, lon], { icon }).addTo(treeLayer).on('click', () => openTreePanel(tree));
+  });
+}
+
+// ─── Subway station data ──────────────────────────────────────────
+let stationsCache = null;
+
+async function loadStations() {
+  if (stationsCache) return stationsCache;
+  const url = 'https://data.ny.gov/resource/39hk-dx4f.json?$limit=500' +
+    '&$select=stop_name,daytime_routes,gtfs_latitude,gtfs_longitude,' +
+    'north_direction_label,south_direction_label,gtfs_stop_id';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Could not load subway station data');
+  const raw = (await res.json())
+    .map(s => ({
+      name:       s.stop_name,
+      routes:     (s.daytime_routes || '').split(' ').filter(Boolean),
+      lat:        parseFloat(s.gtfs_latitude),
+      lon:        parseFloat(s.gtfs_longitude),
+      northLabel: s.north_direction_label || 'Uptown',
+      southLabel: s.south_direction_label || 'Downtown',
+      stopId:     s.gtfs_stop_id
+    }))
+    .filter(s => s.lat && s.lon && s.routes.length);
+
+  // Group records into complexes: same name AND within ~400m (0.004°) of each other.
+  // Same-name stations more than 400m apart (e.g. "86 St" on CPW vs Lex Ave)
+  // are kept separate so transfer logic doesn't suggest a cross-town walk.
+  const complexes = [];
+  for (const s of raw) {
+    const match = complexes.find(c =>
+      c.name === s.name &&
+      Math.hypot(c.lat - s.lat, c.lon - s.lon) < 0.004
+    );
+    if (match) {
+      for (const r of s.routes) if (!match.routes.includes(r)) match.routes.push(r);
+    } else {
+      complexes.push({ ...s, routes: [...s.routes] });
+    }
+  }
+  stationsCache = complexes;
+  return stationsCache;
+}
+
+function nearestStation(latLng, stationList) {
+  const [lat, lon] = latLng;
+  return stationList.reduce((best, s) => {
+    const d = Math.hypot(s.lat - lat, s.lon - lon);
+    return d < best.d ? { s, d } : best;
+  }, { s: null, d: Infinity }).s;
+}
+
+function planSubwayRoute(enter, exit, allStations) {
+  // Direct connection — share at least one line
+  const common = enter.routes.filter(r => exit.routes.includes(r));
+  if (common.length) return { type: 'direct', lines: common, enter, exit };
+
+  // One transfer — find a complex station that bridges enter routes to exit routes.
+  // Score = sum of legs penalised by any detour beyond the direct distance,
+  // so stations that require backtracking rank far below ones on the way.
+  const directDist = Math.hypot(exit.lat - enter.lat, exit.lon - enter.lon);
+  let best = null, bestScore = Infinity;
+  for (const s of allStations) {
+    const leg1 = enter.routes.filter(r => s.routes.includes(r));
+    const leg2 = s.routes.filter(r => exit.routes.includes(r));
+    if (!leg1.length || !leg2.length) continue;
+    const d1 = Math.hypot(s.lat - enter.lat, s.lon - enter.lon);
+    const d2 = Math.hypot(s.lat - exit.lat,  s.lon - exit.lon);
+    // Penalise detour: any total path longer than 1.5× the direct distance is scaled up
+    const detour = Math.max(0, (d1 + d2) / Math.max(directDist, 0.001) - 1.5);
+    const score = (d1 + d2) * (1 + detour * 3);
+    if (score < bestScore) { bestScore = score; best = { s, leg1, leg2 }; }
+  }
+  if (best) return { type: 'transfer', enter, exit,
+                     transfer: best.s, leg1Lines: best.leg1, leg2Lines: best.leg2 };
+  return { type: 'unknown', enter, exit };
+}
+
+// ─── MTA line colors ──────────────────────────────────────────────
+const LINE_COLORS = {
+  '1':'#EE352E','2':'#EE352E','3':'#EE352E',
+  '4':'#00933C','5':'#00933C','6':'#00933C',
+  '7':'#B933AD',
+  'A':'#2850AD','C':'#2850AD','E':'#2850AD',
+  'B':'#FF6319','D':'#FF6319','F':'#FF6319','M':'#FF6319',
+  'G':'#6CBE45',
+  'J':'#996633','Z':'#996633',
+  'L':'#A7A9AC',
+  'N':'#FCCC0A','Q':'#FCCC0A','R':'#FCCC0A','W':'#FCCC0A',
+  'S':'#808183','SIR':'#1D6131'
+};
+
+function lineDot(route) {
+  const bg   = LINE_COLORS[route] || '#555';
+  const text = ['N','Q','R','W'].includes(route) ? '#000' : '#fff';
+  return `<span class="line-dot" style="background:${bg};color:${text}">${route}</span>`;
+}
+
+function direction(fromStation, toStation) {
+  return toStation.lat > fromStation.lat
+    ? fromStation.northLabel
+    : fromStation.southLabel;
+}
+
+// ─── Journey card ─────────────────────────────────────────────────
+function showJourneyCard(plan, min1, min2) {
+  const card = document.getElementById('journey-card');
+  const arrivalsUrl = 'https://www.mta.info/real-time-departure-information';
+
+  let html = '';
+
+  if (plan.type === 'direct') {
+    const dir = direction(plan.enter, plan.exit);
+    const dots = plan.lines.map(lineDot).join('');
+    html = `
+      <div class="j-step">
+        <div class="j-icon">🚶</div>
+        <div class="j-text">Walk <strong>${min1} min</strong> to <strong>${plan.enter.name}</strong> ${dots}</div>
+      </div>
+      <div class="j-step">
+        <div class="j-icon">🚇</div>
+        <div class="j-text">Take ${dots} toward <em>${dir}</em>, exit at <strong>${plan.exit.name}</strong></div>
+      </div>
+      <div class="j-step">
+        <div class="j-icon">🚶</div>
+        <div class="j-text">Walk <strong>${min2} min</strong> to your destination</div>
+      </div>
+      <a href="${arrivalsUrl}" target="_blank" rel="noopener" class="arrivals-link">
+        Check real-time arrivals at ${plan.enter.name} →
+      </a>`;
+  } else if (plan.type === 'transfer') {
+    const dir1 = direction(plan.enter, plan.transfer);
+    const dir2 = direction(plan.transfer, plan.exit);
+    const dots1 = plan.leg1Lines.map(lineDot).join('');
+    const dots2 = plan.leg2Lines.map(lineDot).join('');
+    html = `
+      <div class="j-step">
+        <div class="j-icon">🚶</div>
+        <div class="j-text">Walk <strong>${min1} min</strong> to <strong>${plan.enter.name}</strong> ${dots1}</div>
+      </div>
+      <div class="j-step">
+        <div class="j-icon">🚇</div>
+        <div class="j-text">Take ${dots1} toward <em>${dir1}</em>, transfer at <strong>${plan.transfer.name}</strong></div>
+      </div>
+      <div class="j-step">
+        <div class="j-icon">🔄</div>
+        <div class="j-text">Take ${dots2} toward <em>${dir2}</em>, exit at <strong>${plan.exit.name}</strong></div>
+      </div>
+      <div class="j-step">
+        <div class="j-icon">🚶</div>
+        <div class="j-text">Walk <strong>${min2} min</strong> to your destination</div>
+      </div>
+      <a href="${arrivalsUrl}" target="_blank" rel="noopener" class="arrivals-link">
+        Check real-time arrivals at ${plan.enter.name} →
+      </a>`;
+  } else {
+    html = `
+      <div class="j-step">
+        <div class="j-icon">⚠️</div>
+        <div class="j-text">No direct subway connection found between <strong>${plan.enter.name}</strong> and <strong>${plan.exit.name}</strong> — check the MTA app for routes.</div>
+      </div>`;
+  }
+
+  card.innerHTML = html;
+  card.classList.add('visible');
+}
+
+function renderTreeList(trees) {
+  const el = document.getElementById('tree-list');
+  if (!trees.length) { el.innerHTML = ''; return; }
+
+  // Group by species, tracking count and health breakdown
+  const speciesMap = new Map();
+  for (const t of trees) {
+    const key = t.spc_common || t.spc_latin || 'Unknown';
+    if (!speciesMap.has(key)) speciesMap.set(key, { rep: t, count: 0, health: {} });
+    const entry = speciesMap.get(key);
+    entry.count++;
+    if (t.health) entry.health[t.health] = (entry.health[t.health] || 0) + 1;
+  }
+
+  // Sort by count descending
+  const sorted = [...speciesMap.entries()].sort((a, b) => b[1].count - a[1].count);
+
+  const rows = sorted.map(([key, { rep, count }]) => {
+    const common = titleCase(rep.spc_common || key);
+    const latin  = rep.spc_latin ? `<div class="tree-row-latin">${rep.spc_latin}</div>` : '';
+    const isPark = rep.isParkTree ? ' park' : '';
+
+    return `<div class="tree-row" data-key="${encodeURIComponent(key)}">
+      <div class="tree-row-icon${isPark}"></div>
+      <div class="tree-row-text">
+        <div class="tree-row-name">${common}</div>
+        ${latin}
+      </div>
+      ${count > 1 ? `<div class="tree-row-count">×${count}</div>` : ''}
+      <div class="tree-row-chevron">›</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="tree-list-header">Trees along your route</div>${rows}`;
+
+  // Wire up clicks — open the detail panel for a representative tree of that species
+  el.querySelectorAll('.tree-row').forEach((row, i) => {
+    row.addEventListener('click', () => openTreePanel(sorted[i][1].rep));
+  });
+}
+
+function clearJourneyCard() {
+  const card = document.getElementById('journey-card');
+  card.innerHTML = '';
+  card.classList.remove('visible');
+  document.getElementById('tree-list').innerHTML = '';
+}
+
+// ─── Main search ──────────────────────────────────────────────────
+document.getElementById('go-btn').addEventListener('click', async () => {
+  const originVal = document.getElementById('origin-input').value.trim();
+  const destVal   = document.getElementById('dest-input').value.trim();
+  if (!destVal) { showError('Enter a destination to get started'); return; }
+
+  const btn = document.getElementById('go-btn');
+  setStatus('');
+  hideError();
+  btn.disabled = true;
+  clearRoute();
+
+  try {
+    let origin;
+    if (originVal) {
+      btn.textContent = 'Finding start…';
+      origin = await geocode(originVal);
+    } else if (userLatLng) {
+      origin = userLatLng;
+    } else {
+      throw new Error('Enable location access or type a starting address');
+    }
+
+    btn.textContent = 'Finding destination…';
+    const dest = await geocode(destVal);
+
+    const allBounds = [];
+    let totalTrees = 0;
+
+    if (subwayMode) {
+      btn.textContent = 'Loading subway stations…';
+      const stations = await loadStations();
+
+      const enterStation = nearestStation(origin, stations);
+      const exitStation  = nearestStation(dest,   stations);
+      const plan = planSubwayRoute(enterStation, exitStation, stations);
+
+      btn.textContent = 'Routing walking legs…';
+      const [leg1, leg2] = await Promise.all([
+        getWalkingRoute(origin, [enterStation.lat, enterStation.lon]),
+        getWalkingRoute([exitStation.lat, exitStation.lon], dest)
+      ]);
+
+      const line1 = drawWalkLeg(leg1.geometry);
+      drawSubwayLeg([enterStation.lat, enterStation.lon], [exitStation.lat, exitStation.lon]);
+      const line2 = drawWalkLeg(leg2.geometry);
+      allBounds.push(...line1.getLatLngs(), ...line2.getLatLngs());
+
+      btn.textContent = 'Finding trees…';
+      const [trees1, trees2] = await Promise.all([
+        fetchAllTrees(leg1.geometry),
+        fetchAllTrees(leg2.geometry)
+      ]);
+      const allTrees1 = trees1.concat(trees2);
+      placeTrees(allTrees1);
+      renderTreeList(allTrees1);
+      totalTrees = allTrees1.length;
+
+      showJourneyCard(plan, walkMinutes(leg1.duration), walkMinutes(leg2.duration));
+
+    } else {
+      btn.textContent = 'Routing…';
+      const { geometry, duration } = await getWalkingRoute(origin, dest);
+      const line = drawWalkLeg(geometry);
+      allBounds.push(...line.getLatLngs());
+
+      btn.textContent = 'Finding trees…';
+      const trees = await fetchAllTrees(geometry);
+      placeTrees(trees);
+      renderTreeList(trees);
+      totalTrees = trees.length;
+    }
+
+    if (allBounds.length) {
+      const panelH = document.getElementById('search-panel').clientHeight;
+      map.fitBounds(L.latLngBounds(allBounds), {
+        paddingTopLeft:     [40, 60],
+        paddingBottomRight: [40, panelH + 20]
+      });
+    }
+    setStatus(totalTrees
+      ? `🌳 ${totalTrees} trees on your route`
+      : 'No trees found along this route');
+
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = subwayMode ? '🚇 Plan subway + tree route' : '🌳 Show trees along route';
+  }
+});
+
+// ─── Tree detail panel ────────────────────────────────────────────
+async function getWikiSummary(name) {
+  try {
+    const res  = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.type === 'disambiguation' ? null : data;
+  } catch { return null; }
+}
+
+async function getCommonsImageUrl(query) {
+  try {
+    const res  = await fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+      `&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6` +
+      `&prop=imageinfo&iiprop=url&format=json&origin=*&gsrlimit=1`
+    );
+    const data = await res.json();
+    const pages = data.query?.pages;
+    if (!pages) return null;
+    return Object.values(pages)[0]?.imageinfo?.[0]?.url ?? null;
+  } catch { return null; }
+}
+
+async function openTreePanel(tree) {
+  const panel   = document.getElementById('tree-panel');
+  const content = document.getElementById('panel-content');
+
+  const common = titleCase(tree.spc_common || 'Unknown tree');
+  const latin  = tree.spc_latin || '';
+  const health = tree.health || '';
+  const hClass = { Good: 'h-good', Fair: 'h-fair', Poor: 'h-poor' }[health] || '';
+
+  content.innerHTML = `
+    <div class="tree-names">
+      <div class="tree-common">${common}</div>
+      ${latin ? `<div class="tree-latin">${latin}</div>` : ''}
+      ${hClass ? `<span class="health-badge ${hClass}">${health} health</span>` : ''}
+    </div>
+    <div class="spinner"></div>`;
+  panel.classList.add('open');
+
+  const [wiki, leafImg, barkImg] = await Promise.all([
+    getWikiSummary(latin || common),
+    latin ? getCommonsImageUrl(`${latin} leaf`) : null,
+    latin ? getCommonsImageUrl(`${latin} bark`) : null,
+  ]);
+
+  const images = [];
+  if (leafImg) images.push({ url: leafImg, label: 'Leaf' });
+  if (barkImg) images.push({ url: barkImg, label: 'Bark' });
+  if (!images.length && wiki?.thumbnail?.source) images.push({ url: wiki.thumbnail.source, label: 'Overview' });
+
+  const wikiUrl = wiki?.content_urls?.desktop?.page;
+  const extract = wiki?.extract;
+
+  content.innerHTML = `
+    <div class="tree-names">
+      <div class="tree-common">${common}</div>
+      ${latin ? `<div class="tree-latin">${latin}</div>` : ''}
+      ${hClass ? `<span class="health-badge ${hClass}">${health} health</span>` : ''}
+    </div>
+    ${images.length ? `
+      <div class="tree-images">
+        ${images.map(img => `
+          <div>
+            <div class="img-card">
+              <img src="${img.url}" alt="${img.label} of ${common}" loading="lazy"
+                onerror="this.closest('.img-card').style.display='none'">
+            </div>
+            <div class="img-label">${img.label}</div>
+          </div>`).join('')}
+      </div>` : ''}
+    ${extract ? `<p class="tree-summary">${extract}</p>` : ''}
+    ${wikiUrl
+      ? `<a href="${wikiUrl}" target="_blank" rel="noopener noreferrer" class="wiki-link">Read more on Wikipedia ↗</a>`
+      : `<div style="height:16px"></div>`}`;
+}
+
+document.getElementById('close-panel').addEventListener('click', () => {
+  document.getElementById('tree-panel').classList.remove('open');
+});
+map.on('click', () => document.getElementById('tree-panel').classList.remove('open'));
+
+// ─── Helpers ──────────────────────────────────────────────────────
+function setStatus(msg) { document.getElementById('status-line').textContent = msg; }
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideError() { document.getElementById('error-msg').style.display = 'none'; }
+function titleCase(str) {
+  return str.replace(/\b\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+</script>
+
+</body>
+</html>
